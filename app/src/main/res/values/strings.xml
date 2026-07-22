@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IRIS</string>
+    <string name="accessibility_service_description">Lets IRIS read the screen and perform taps/swipes/typing on your behalf, only when you ask it to.</string>
+</resources>

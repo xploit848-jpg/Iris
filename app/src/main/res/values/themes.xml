@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Iris.Dark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/iris_bg</item>
+        <item name="android:statusBarColor">@color/iris_bg</item>
+        <item name="android:navigationBarColor">@color/iris_bg</item>
+        <item name="android:textColorPrimary">@color/iris_text_primary</item>
+        <item name="android:textColorSecondary">@color/iris_text_secondary</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

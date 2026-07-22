@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="iris_bg">#0A0B0F</color>
+    <color name="iris_surface">#14161C</color>
+    <color name="iris_surface_alt">#1C1F27</color>
+    <color name="iris_text_primary">#F2F3F7</color>
+    <color name="iris_text_secondary">#8B8F9C</color>
+
+    <!-- Orb accent — cool cyan/violet gradient, states tint it -->
+    <color name="orb_idle">#4C7EFF</color>
+    <color name="orb_listening">#38E1C6</color>
+    <color name="orb_thinking">#B084F5</color>
+    <color name="orb_speaking">#FF6FA0</color>
+</resources>
