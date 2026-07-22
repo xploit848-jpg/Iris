@@ -43,6 +43,26 @@ chmod +x build.sh
 
 Output: `build/iris-debug.apk`.
 
+## Live voice mode
+
+IRIS can use the OpenAI Realtime API for one continuously open microphone
+session with server-side voice activity detection. The permanent API key must
+stay on the session server; it is never included in the APK.
+
+Start the local token server from the repository root:
+
+```
+node --env-file=idk server/session-server.mjs
+```
+
+The Android debug build uses `http://localhost:8787/session` for a session
+server running on the same Android device. For an emulator using a server on
+the development computer, change it to `http://10.0.2.2:8787/session`; for a
+physical device using a server on another computer, change
+`REALTIME_SESSION_URL` in `app/build.gradle.kts` to the host computer's LAN
+address and ensure the phone can reach port 8787. If the server is unavailable,
+IRIS falls back to the existing Android speech recognizer.
+
 ## Not yet built (next modules, per your roadmap)
 - Offline STT/TTS wiring into the orb states
 - Accessibility service logic (tap/swipe/read screen)

@@ -3,3 +3,5 @@
 /.gradle/
 *.apk
 local.properties
+idk
+.env.local

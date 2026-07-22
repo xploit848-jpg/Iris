@@ -3,6 +3,8 @@ package com.aetherai.iris.core
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.aetherai.iris.service.IrisAccessibilityService
+import org.json.JSONObject
 
 enum class SessionOrbState { IDLE, LISTENING, THINKING, SPEAKING }
 
@@ -97,6 +99,49 @@ private class ControllerTtsListener(private val controller: VoiceSessionControll
     }
 }
 
+private class RealtimeStateRunnable(
+    private val controller: VoiceSessionController,
+    private val state: String
+) : Runnable {
+    override fun run() {
+        controller.handleRealtimeStateOnMainThread(state)
+    }
+}
+
+private class RealtimeErrorRunnable(
+    private val controller: VoiceSessionController,
+    private val message: String
+) : Runnable {
+    override fun run() {
+        controller.handleRealtimeErrorOnMainThread(message)
+    }
+}
+
+private class RealtimeToolRunnable(
+    private val controller: VoiceSessionController,
+    private val callId: String,
+    private val name: String,
+    private val arguments: JSONObject
+) : Runnable {
+    override fun run() {
+        controller.handleRealtimeToolOnMainThread(callId, name, arguments)
+    }
+}
+
+private class ControllerRealtimeListener(private val controller: VoiceSessionController) : RealtimeSessionListener {
+    override fun onRealtimeState(state: String) {
+        controller.onRealtimeState(state)
+    }
+
+    override fun onRealtimeError(message: String) {
+        controller.onRealtimeError(message)
+    }
+
+    override fun onRealtimeToolCall(callId: String, name: String, arguments: JSONObject) {
+        controller.onRealtimeToolCall(callId, name, arguments)
+    }
+}
+
 /**
  * Owns the full listen -> route -> speak -> relisten loop, shared by
  * both the in-app Home page mic button and the background floating
@@ -109,6 +154,8 @@ class VoiceSessionController(private val context: Context) {
     private val llmEngine = LlmEngine(context)
     private val commandRouter = CommandRouter(context, llmEngine)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val realtimeSession = RealtimeSession(context, BuildConfig.REALTIME_SESSION_URL, ControllerRealtimeListener(this))
+    private var usingRealtime = false
 
     var listener: VoiceSessionListener? = null
 
@@ -124,12 +171,15 @@ class VoiceSessionController(private val context: Context) {
     fun startSession() {
         if (sessionActive) return
         sessionActive = true
-        mainHandler.post(GreetAndListenRunnable(this))
+        usingRealtime = true
+        realtimeSession.start()
     }
 
     /** Safe to call from any thread. */
     fun stopSession() {
         sessionActive = false
+        usingRealtime = false
+        realtimeSession.stop()
         mainHandler.post(PerformStopListeningRunnable(this))
         voiceEngine.stop()
         postOrbState(SessionOrbState.IDLE)
@@ -142,12 +192,70 @@ class VoiceSessionController(private val context: Context) {
         voiceEngine.speak(greeting)
     }
 
+    fun onRealtimeState(state: String) {
+        mainHandler.post(RealtimeStateRunnable(this, state))
+    }
+
+    fun onRealtimeError(message: String) {
+        mainHandler.post(RealtimeErrorRunnable(this, message))
+    }
+
+    fun onRealtimeToolCall(callId: String, name: String, arguments: JSONObject) {
+        mainHandler.post(RealtimeToolRunnable(this, callId, name, arguments))
+    }
+
+    fun handleRealtimeStateOnMainThread(state: String) {
+        if (!usingRealtime || !sessionActive) return
+        when (state) {
+            "CONNECTING" -> {
+                postOrbState(SessionOrbState.THINKING)
+                postStatusText("Connecting live voice...")
+            }
+            "LISTENING" -> {
+                postOrbState(SessionOrbState.LISTENING)
+                postStatusText("Listening...")
+            }
+        }
+    }
+
+    fun handleRealtimeErrorOnMainThread(message: String) {
+        if (!sessionActive || !usingRealtime) return
+        // Preserve the original recognizer path if the local token server,
+        // network, or Realtime service is unavailable.
+        usingRealtime = false
+        realtimeSession.stop()
+        postStatusText("Live voice unavailable — using standard voice mode")
+        mainHandler.post(GreetAndListenRunnable(this))
+    }
+
+    fun handleRealtimeToolOnMainThread(callId: String, name: String, arguments: JSONObject) {
+        if (!sessionActive || !usingRealtime) return
+        val service = IrisAccessibilityService.instance
+        val result = JSONObject()
+        if (service == null) {
+            result.put("ok", false).put("error", "Accessibility service is not enabled")
+            realtimeSession.sendToolResult(callId, result)
+            return
+        }
+        when (name) {
+            "read_screen" -> result.put("ok", true).put("text", service.readScreenText().take(40).joinToString("\n"))
+            "tap" -> result.put("ok", service.tapByText(arguments.optString("target")))
+                .put("target", arguments.optString("target"))
+            "swipe" -> result.put("ok", service.swipe(arguments.optString("direction")))
+                .put("direction", arguments.optString("direction"))
+            "type_text" -> result.put("ok", service.typeText(arguments.optString("text")))
+            else -> result.put("ok", false).put("error", "Unknown screen tool")
+        }
+        realtimeSession.sendToolResult(callId, result)
+    }
+
     /** Safe to call from any thread — always hops to main before touching SpeechRecognizer. */
     fun startListening() {
         mainHandler.post(PerformStartListeningRunnable(this))
     }
 
     fun performStartListening() {
+        if (usingRealtime) return
         if (!sessionActive) return
         if (context.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             postStatusText("Grant microphone permission in Settings first")
@@ -173,15 +281,18 @@ class VoiceSessionController(private val context: Context) {
     }
 
     fun onSttResult(text: String) {
+        if (usingRealtime) return
         mainHandler.post(SttResultRunnable(this, text))
     }
 
     fun onSttError(message: String) {
+        if (usingRealtime) return
         mainHandler.post(SttErrorRunnable(this, message))
     }
 
     /** Always called on the main thread (posted via onSttResult). */
     fun handleSttResultOnUiThread(text: String) {
+        if (usingRealtime) return
         if (!sessionActive) return
         if (text.isBlank()) {
             postStatusText("Didn't catch that")
@@ -196,6 +307,7 @@ class VoiceSessionController(private val context: Context) {
 
     /** Always called on the main thread (posted via onSttError). */
     fun handleSttErrorOnUiThread(message: String) {
+        if (usingRealtime) return
         if (!sessionActive) return
         postStatusText("Didn't catch that — try again")
         startListening()
@@ -203,6 +315,7 @@ class VoiceSessionController(private val context: Context) {
 
     /** Runs on a background thread — commandRouter.route() may block on network calls or Thread.sleep for multi-step actions. */
     fun routeAndSpeak(transcript: String) {
+        if (usingRealtime) return
         val result = commandRouter.route(transcript)
         if (!sessionActive) return
         MemoryStore.appendConversationTurn("iris", result.spokenReply)
@@ -234,6 +347,7 @@ class VoiceSessionController(private val context: Context) {
 
     fun release() {
         sessionActive = false
+        realtimeSession.stop()
         speechEngine.release()
         voiceEngine.release()
         llmEngine.unload()

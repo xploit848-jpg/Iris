@@ -168,9 +168,16 @@ class IrisAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return false
         val node = findNodeByText(root, target.lowercase())
         if (node == null) return false
-        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        // Text is often a child of the actual Button/ImageButton. Walk upward
+        // so commands activate the control instead of merely tapping its label.
+        var clickTarget = node
+        while (!clickTarget.isClickable) {
+            val parent = clickTarget.parent ?: break
+            clickTarget = parent
+        }
+        if (clickTarget.isClickable && clickTarget.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
         val bounds = Rect()
-        node.getBoundsInScreen(bounds)
+        clickTarget.getBoundsInScreen(bounds)
         return performTapAt(bounds.centerX().toFloat(), bounds.centerY().toFloat())
     }
 
@@ -210,6 +217,14 @@ class IrisAccessibilityService : AccessibilityService() {
 
     fun swipeOnMainThread(direction: String): Boolean {
         val root = rootInActiveWindow ?: return false
+        val scrollAction = if (direction == "down") {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        }
+        val scrollable = findScrollableNode(root)
+        if (scrollable != null && scrollable.performAction(scrollAction)) return true
+
         val bounds = Rect()
         root.getBoundsInScreen(bounds)
         val centerX = bounds.centerX().toFloat()
@@ -227,6 +242,17 @@ class IrisAccessibilityService : AccessibilityService() {
         val stroke = GestureDescription.StrokeDescription(path, 0, 300)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
         return dispatchGesture(gesture, SimpleGestureCallback(), null)
+    }
+
+    private fun findScrollableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isScrollable) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findScrollableNode(child)
+            if (found != null) return found
+            child.recycle()
+        }
+        return null
     }
 
     /**
