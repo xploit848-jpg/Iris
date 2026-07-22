@@ -4,8 +4,67 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+
+private class BooleanResult {
+    @Volatile var value = false
+}
+
+private class TextResult {
+    @Volatile var value: List<String> = emptyList()
+}
+
+private class ReadScreenTextRunnable(
+    private val service: IrisAccessibilityService,
+    private val result: TextResult,
+    private val latch: CountDownLatch
+) : Runnable {
+    override fun run() {
+        result.value = service.readScreenTextOnMainThread()
+        latch.countDown()
+    }
+}
+
+private class TapByTextRunnable(
+    private val service: IrisAccessibilityService,
+    private val target: String,
+    private val result: BooleanResult,
+    private val latch: CountDownLatch
+) : Runnable {
+    override fun run() {
+        result.value = service.tapByTextOnMainThread(target)
+        latch.countDown()
+    }
+}
+
+private class SwipeRunnable(
+    private val service: IrisAccessibilityService,
+    private val direction: String,
+    private val result: BooleanResult,
+    private val latch: CountDownLatch
+) : Runnable {
+    override fun run() {
+        result.value = service.swipeOnMainThread(direction)
+        latch.countDown()
+    }
+}
+
+private class TypeTextRunnable(
+    private val service: IrisAccessibilityService,
+    private val text: String,
+    private val result: BooleanResult,
+    private val latch: CountDownLatch
+) : Runnable {
+    override fun run() {
+        result.value = service.typeTextOnMainThread(text)
+        latch.countDown()
+    }
+}
 
 /**
  * Named GestureResultCallback impl — no lambdas/anonymous classes, per the
@@ -28,6 +87,8 @@ private class SimpleGestureCallback : AccessibilityService.GestureResultCallback
  * runtime permission.
  */
 class IrisAccessibilityService : AccessibilityService() {
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     companion object {
         // Other classes (CommandRouter) reach the running service through
@@ -59,6 +120,17 @@ class IrisAccessibilityService : AccessibilityService() {
 
     /** Returns all visible text on screen, top-to-bottom as Android's tree walk finds it. */
     fun readScreenText(): List<String> {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            val result = TextResult()
+            val latch = CountDownLatch(1)
+            mainHandler.post(ReadScreenTextRunnable(this, result, latch))
+            latch.await(1500, TimeUnit.MILLISECONDS)
+            return result.value
+        }
+        return readScreenTextOnMainThread()
+    }
+
+    fun readScreenTextOnMainThread(): List<String> {
         val root = rootInActiveWindow ?: return emptyList()
         val results = mutableListOf<String>()
         collectText(root, results)
@@ -83,9 +155,20 @@ class IrisAccessibilityService : AccessibilityService() {
 
     /** Finds the first visible element whose text or content-description contains [target] (case-insensitive) and taps its center. Returns true if a match was tapped. */
     fun tapByText(target: String): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            val result = BooleanResult()
+            val latch = CountDownLatch(1)
+            mainHandler.post(TapByTextRunnable(this, target, result, latch))
+            return latch.await(1500, TimeUnit.MILLISECONDS) && result.value
+        }
+        return tapByTextOnMainThread(target)
+    }
+
+    fun tapByTextOnMainThread(target: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val node = findNodeByText(root, target.lowercase())
         if (node == null) return false
+        if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
         return performTapAt(bounds.centerX().toFloat(), bounds.centerY().toFloat())
@@ -115,8 +198,18 @@ class IrisAccessibilityService : AccessibilityService() {
     }
 
     /** Swipes from 80% to 20% of screen height (down-to-up motion = "scroll down" reading direction) or reverse. */
-    fun swipe(direction: String) {
-        val root = rootInActiveWindow ?: return
+    fun swipe(direction: String): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            val result = BooleanResult()
+            val latch = CountDownLatch(1)
+            mainHandler.post(SwipeRunnable(this, direction, result, latch))
+            return latch.await(1500, TimeUnit.MILLISECONDS) && result.value
+        }
+        return swipeOnMainThread(direction)
+    }
+
+    fun swipeOnMainThread(direction: String): Boolean {
+        val root = rootInActiveWindow ?: return false
         val bounds = Rect()
         root.getBoundsInScreen(bounds)
         val centerX = bounds.centerX().toFloat()
@@ -133,7 +226,7 @@ class IrisAccessibilityService : AccessibilityService() {
         }
         val stroke = GestureDescription.StrokeDescription(path, 0, 300)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
-        dispatchGesture(gesture, SimpleGestureCallback(), null)
+        return dispatchGesture(gesture, SimpleGestureCallback(), null)
     }
 
     /**
@@ -146,6 +239,16 @@ class IrisAccessibilityService : AccessibilityService() {
      * IME "enter" key through the accessibility API.
      */
     fun typeText(text: String): Boolean {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            val result = BooleanResult()
+            val latch = CountDownLatch(1)
+            mainHandler.post(TypeTextRunnable(this, text, result, latch))
+            return latch.await(1500, TimeUnit.MILLISECONDS) && result.value
+        }
+        return typeTextOnMainThread(text)
+    }
+
+    fun typeTextOnMainThread(text: String): Boolean {
         val root = rootInActiveWindow ?: return false
         val node = findEditableNode(root) ?: return false
         val args = android.os.Bundle()

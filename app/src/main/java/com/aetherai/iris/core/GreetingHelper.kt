@@ -19,13 +19,14 @@ object GreetingHelper {
             else -> "night"
         }
 
-        val timeFormat = SimpleDateFormat("h:mm a", Locale.US)
+        val locale = Locale.getDefault()
+        val timeFormat = SimpleDateFormat("h:mm a", locale)
         val timeString = timeFormat.format(calendar.time)
 
         val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
         val batteryLevel = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
         val batteryPart = if (batteryLevel >= 0) ", battery is at $batteryLevel percent" else ""
 
-        return "Good $timeOfDay boss, it's $timeString$batteryPart."
+        return "Good $timeOfDay. It's $timeString$batteryPart. How can I help?"
     }
 }

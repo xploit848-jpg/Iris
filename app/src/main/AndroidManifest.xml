@@ -83,7 +83,7 @@
         <service
             android:name=".service.IrisOverlayService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="microphone|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating IRIS activation orb shown over other apps" />

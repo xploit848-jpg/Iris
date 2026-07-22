@@ -82,13 +82,17 @@ class CommandRouter(private val context: Context, private val llmEngine: LlmEngi
         }
 
         if (text.contains("scroll down")) {
-            IrisAccessibilityService.instance?.swipe("down")
-            return RouteResult("Scrolling down", true)
+            val service = IrisAccessibilityService.instance
+                ?: return RouteResult("Accessibility service isn't enabled yet — turn it on in Settings", true)
+            return if (service.swipe("down")) RouteResult("Scrolling down", true)
+            else RouteResult("I couldn't scroll the current screen", true)
         }
 
         if (text.contains("scroll up")) {
-            IrisAccessibilityService.instance?.swipe("up")
-            return RouteResult("Scrolling up", true)
+            val service = IrisAccessibilityService.instance
+                ?: return RouteResult("Accessibility service isn't enabled yet — turn it on in Settings", true)
+            return if (service.swipe("up")) RouteResult("Scrolling up", true)
+            else RouteResult("I couldn't scroll the current screen", true)
         }
 
         val tapTarget = extractAfterKeyword(text, listOf("tap ", "press ", "click "))

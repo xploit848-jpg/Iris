@@ -58,7 +58,8 @@ class SpeechEngine(private val context: Context) {
     }
 
     fun stop() {
-        recognizer?.stopListening()
+        // cancel() suppresses a late final-result callback after the user stops IRIS.
+        recognizer?.cancel()
     }
 
     fun release() {

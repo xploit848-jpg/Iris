@@ -38,6 +38,15 @@ private class RouteAndSpeakRunnable(private val controller: VoiceSessionControll
     }
 }
 
+private class RouteResultRunnable(
+    private val controller: VoiceSessionController,
+    private val result: RouteResult
+) : Runnable {
+    override fun run() {
+        controller.handleRouteResultOnMainThread(result)
+    }
+}
+
 private class OrbStateUiRunnable(private val controller: VoiceSessionController, private val state: SessionOrbState) : Runnable {
     override fun run() {
         controller.listener?.onOrbState(state)
@@ -76,6 +85,18 @@ private class GreetAndListenRunnable(private val controller: VoiceSessionControl
     }
 }
 
+private class SpeechFinishedRunnable(private val controller: VoiceSessionController) : Runnable {
+    override fun run() {
+        controller.handleSpeechFinishedOnMainThread()
+    }
+}
+
+private class ControllerTtsListener(private val controller: VoiceSessionController) : VoiceEngineListener {
+    override fun onSpeechFinished() {
+        controller.onSpeechFinished()
+    }
+}
+
 /**
  * Owns the full listen -> route -> speak -> relisten loop, shared by
  * both the in-app Home page mic button and the background floating
@@ -90,6 +111,10 @@ class VoiceSessionController(private val context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     var listener: VoiceSessionListener? = null
+
+    init {
+        voiceEngine.listener = ControllerTtsListener(this)
+    }
 
     @Volatile
     var sessionActive = false
@@ -106,6 +131,7 @@ class VoiceSessionController(private val context: Context) {
     fun stopSession() {
         sessionActive = false
         mainHandler.post(PerformStopListeningRunnable(this))
+        voiceEngine.stop()
         postOrbState(SessionOrbState.IDLE)
         postStatusText("Idle")
     }
@@ -114,7 +140,6 @@ class VoiceSessionController(private val context: Context) {
         postOrbState(SessionOrbState.SPEAKING)
         val greeting = GreetingHelper.buildGreeting(context)
         voiceEngine.speak(greeting)
-        if (sessionActive) startListening()
     }
 
     /** Safe to call from any thread — always hops to main before touching SpeechRecognizer. */
@@ -137,6 +162,14 @@ class VoiceSessionController(private val context: Context) {
 
     fun performStopListening() {
         speechEngine.stop()
+    }
+
+    fun onSpeechFinished() {
+        mainHandler.post(SpeechFinishedRunnable(this))
+    }
+
+    fun handleSpeechFinishedOnMainThread() {
+        if (sessionActive) startListening()
     }
 
     fun onSttResult(text: String) {
@@ -171,8 +204,15 @@ class VoiceSessionController(private val context: Context) {
     /** Runs on a background thread — commandRouter.route() may block on network calls or Thread.sleep for multi-step actions. */
     fun routeAndSpeak(transcript: String) {
         val result = commandRouter.route(transcript)
-        postStatusText(result.spokenReply)
+        if (!sessionActive) return
         MemoryStore.appendConversationTurn("iris", result.spokenReply)
+        mainHandler.post(RouteResultRunnable(this, result))
+    }
+
+    /** TTS and voice-session state changes are owned by the main thread. */
+    fun handleRouteResultOnMainThread(result: RouteResult) {
+        if (!sessionActive) return
+        postStatusText(result.spokenReply)
 
         postOrbState(SessionOrbState.SPEAKING)
         voiceEngine.speak(result.spokenReply)
@@ -181,8 +221,6 @@ class VoiceSessionController(private val context: Context) {
             sessionActive = false
             postOrbState(SessionOrbState.IDLE)
             postStatusText("Idle")
-        } else if (sessionActive) {
-            startListening()
         }
     }
 
