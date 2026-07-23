@@ -7,10 +7,6 @@ android {
     namespace = "com.aetherai.iris"
     compileSdk = 34
 
-    buildFeatures {
-        buildConfig = true
-    }
-
     signingConfigs {
         getByName("debug") {
             storeFile = file("debug.keystore")
@@ -26,7 +22,6 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0-phase1"
-        buildConfigField("String", "REALTIME_SESSION_URL", "\"http://localhost:8787/session\"")
     }
 
     buildTypes {
@@ -49,5 +44,4 @@ android {
 }
 
 dependencies {
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

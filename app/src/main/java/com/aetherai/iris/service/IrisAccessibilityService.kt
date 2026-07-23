@@ -170,10 +170,9 @@ class IrisAccessibilityService : AccessibilityService() {
         if (node == null) return false
         // Text is often a child of the actual Button/ImageButton. Walk upward
         // so commands activate the control instead of merely tapping its label.
-        var clickTarget = node
+        var clickTarget: AccessibilityNodeInfo = node
         while (!clickTarget.isClickable) {
-            val parent = clickTarget.parent ?: break
-            clickTarget = parent
+            clickTarget = clickTarget.parent ?: break
         }
         if (clickTarget.isClickable && clickTarget.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
         val bounds = Rect()
